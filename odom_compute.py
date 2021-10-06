@@ -6,6 +6,16 @@ import tf.transformations
 from turtlebot3_msgs.msg import SensorState 
 from nav_msgs.msg import Odometry 
 
+class State:
+ 
+    def __init__(self, x, y, theta, vx, vy, vtheta):
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.vx = vx
+        self.vy = vy
+        self.vtheta = vtheta
+
 prev_right = 0
 prev_left = 0
 WHEEL_CIRCUMFERENCE = 0.2073 
@@ -67,9 +77,9 @@ def callback(data):
     global prev_right
     global prev_left
     global lastData
-    print ('stuff)
+    print ('stuff')
     curr_right = data.right_encoder
-    curr_left = data_encoder
+    curr_left = data.left_encoder
     right_chng = 0
     left_chng = 0
     if prev_right != 0 :
@@ -83,9 +93,9 @@ def callback(data):
     u = [left_chng * 0.2073,right_chng * 0.2073]
     x_prime = transitionModel(data,u)
     if lastData != None:
-        x_prime.vx = dx/(data.header.time - lastData.header.time)
-        x_prime.vy = dy/(data.header.time - lastData.header.time)
-        x_prime.vtheda = delt_thed/(data.header.time - lastData.header.time)
+        x_prime.vx = dx/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
+        x_prime.vy = dy/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
+        x_prime.vtheda = delt_thed/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
 
     lastData = data
 
@@ -96,48 +106,12 @@ def callback2(data):
     ypos = data.pose.pose.position.y
 
 
-def listener():
-    rospy.init_node('odom_compute', anonymous=True)
-
-    rospy.Subscriber('/sensor_state', SensorState, callback)
-    rospy.Subscriber('/odom', Odometry, callback2)
-
-    # spin() simply keeps python from exiting until this node is stopped
-    rospy.spin()
-
 def buildOdomMsg(state, odomMsg):
         odomMsg.pose.pose.position.x = state.x
         odomMsg.pose.pose.position.y = state.y
-        
+        q_array = tf.transformations.quaternion_from_euler(0, 0, state.theta)
+        odomMsg.pose.pose.orientation= q_array
 
-def talker():
-        global x_prime
-        pub = rospy.Publisher('my_odom', myMsg,queue_size = 10)
-        rate = rospy.Rate(30) # 10hz
-
-        pub_msg = buildOdomMsg(x_prime,Odometry)
-        while not rospy.is_shutdown():
-                rospy.loginfo(pub_msg)
-                pub.publish(pub_msg)
-                rate.sleep()
-
-
-if __name__ == '__main__':
-    try:
-            listener()
-            talker()
-    except rospy.ROSInterruptException:
-            pass
-
-class State:
- 
-    def __init__(self, x, y, theta, vx, vy, vtheta):
-        self.x = x
-        self.y = y
-        self.theta = theta
-        self.vx = vx
-        self.vy = vy
-        self.vtheta = vtheta
 
 def transitionModel(x, u):
     global x_prime
@@ -156,4 +130,27 @@ def transitionModel(x, u):
     dy = d*math.sin(thed+delt_thed)
     x_prime = State(dx+xpos,dy+ypos,thed,0,0,0)
     return x_prime
+
+def __main__():
+    rospy.init_node('odom_compute', anonymous=True)
+
+    rospy.Subscriber('/sensor_state', SensorState, callback)
+    rospy.Subscriber('/odom', Odometry, callback2)
+
+    global x_prime
+    pub = rospy.Publisher('my_odom', Odometry,queue_size = 10)
+    rate = rospy.Rate(30) # 10hz
+
+    o = Odometry()
+    while not rospy.is_shutdown():
+            buildOdomMsg(x_prime,o)
+            rospy.loginfo(o)
+            pub.publish(o)
+            rate.sleep()
+
+if __name__ == '__main__':
+    try:
+            __main__()
+    except rospy.ROSInterruptException:
+            pass
         
