@@ -24,7 +24,7 @@ def driveDistance(dist):
 
         old_x = odom.pose.pose.position.x
         old_y = odom.pose.pose.position.y
-        
+
         while(curr_dist < dist):
                 pub.publish(t)
                 curr_dist = math.sqrt(((odom.pose.pose.position.x-old_x)**2)+((odom.pose.pose.position.y-old_y)**2))
@@ -41,7 +41,6 @@ def turnTo(theta):
         curr_angle = theta*(new_time-prev_time)
     t.angular.z = 0.0 #make the bot stop turning
 
-
 def __main__():
         global t
         global pub
@@ -49,10 +48,9 @@ def __main__():
 
         rospy.init_node('drive_robot', anonymous=True)
         rate = rospy.Rate(30) # 30hz
-        rospy.Subscriber("odom",Odometry, callback)
+        rospy.Subscriber("my_odom",Odometry, callback)
 
         t.linear.x = 0.2
-
         t.angular.x = 0.0
         t.angular.y = 0.0
         t.angular.z = 0.0
