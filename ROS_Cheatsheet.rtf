@@ -1,0 +1,69 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2580
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica-Bold;\f1\fswiss\fcharset0 Helvetica;\f2\fmodern\fcharset0 Courier;
+}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww13440\viewh13260\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\b\fs32 \cf0 Robot Operating System CheatSheet
+\f1\b0\fs24 \
+\
+
+\f0\b ALWAYS DO THIS FIRST\
+
+\f2\b0 cd ~/ros_workspace\
+source ~/ros_workspace/devel/setup.bash
+\f1 \
+\
+
+\f0\b\fs28 Navigating Your Package/Workspace
+\f1\b0\fs24 \
+
+\f2 cd ~/ros_workspace/src
+\f1 \
+\
+
+\f0\b\fs28 Building the package in your workspace (nodes go in here)
+\f1\b0\fs24 \
+
+\f2 cd ~/ros_workspace/src\
+catkin_create_pkg PACKNAME std_msgs rospy\
+cd ~/ros_workspace/\
+catkin_make\
+source ~/ros_workspace/devel/setup.bash
+\f1 \
+\
+
+\f0\b\fs28 Building py file as executable
+\f1\b0\fs24 \
+(cd to your scripts file)\
+
+\f2 sudo chmod +x file.py\
+password: turtlebot
+\f1 \
+\
+
+\f0\b\fs28 Running your node\
+
+\f1\b0\fs24 In another tab: 
+\f2 roscore
+\f1 \
+In main tab: 
+\f2 rosrun nodename node.py\
+
+\f1 \
+
+\f0\b\fs28 Connecting to a Robot
+\f1\b0\fs24 \
+(Connect to turtlebot wifi)\
+
+\f2 tcu *robot_name*\
+roslaunch turtlebot3_teleop turtlebot3_teleop_key.launch
+\f1 \
+\
+
+\f0\b\fs28 Running bag file
+\f1\b0\fs24 \
+
+\f2 rosbag play bagname.bag}
