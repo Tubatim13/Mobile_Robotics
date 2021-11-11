@@ -29,6 +29,9 @@ delt_thed = 0
 cov = np.mat('1 1 1; 1 1 1; 1 1 1', float)
 corners = None
 error = None
+#ekf stuff---
+u = [0,0]
+wheel_encoder=[0,0]
 
 class Line:
 
@@ -870,6 +873,7 @@ def callback(data):
     global prev_left
     global lastData
     global cov
+    global u
     curr_right = data.right_encoder
     curr_left = data.left_encoder
     right_chng = 0
@@ -921,8 +925,37 @@ def transitionModel(x, u):
     x_prime = State(dx+xpos,dy+ypos,thed,0,0,0)
     return x_prime
 
+#allyson time
+def predict(data):
+    print('in predict')
+    global pose
+    global u
+    global cov
+    global wheel_encoder
+    
+    prev_pose = pose        
+    G = getG(prev_pose,u)   #Get the transition model matrix for the previous state and latest control
+    V = getV(prev_pose,u)   #Get the motion model matrix for the previous state and latest control
+    M = getM(u, 0.5)        #Get motion error matrix for motion model
+    
+    callback(data)
+    cov = G * cov * np.transpose(G) + V * M * np.transpose(V)
+
+    #testing
+    print('POSE:', pose)
+    print('COV:', cov)
+
+#def measure():
+    
+ 
+def ekf_callback(data):
+    print('in ekf callback')
+    global wheel_encoder
+    wheel_encoder = [data.left_encoder, data.right_encoder]
+
+
 def main():
-    #print('In main')
+    print('In main')
 
     pose.position.x = 0
     pose.position.y = 0
@@ -932,17 +965,18 @@ def main():
     pose.orientation.z= 0
     pose.orientation.w = 0
 
-    sub_lasers = rospy.Subscriber('/scan', LaserScan, laserCb)
+    #sub_lasers = rospy.Subscriber('/scan', LaserScan, laserCb)
     #rospy.Subscriber('/sensor_state', SensorState, callback)
-
+    print('running sensor state')
+    rospy.Subscriber('/sensor_state', SensorState, predict)
     rospy.spin()
-
-    #print('Exiting normally')
+    print('Exiting normally')
 
 
 if __name__ == '__main__':
     try:
-        rospy.init_node('error_prop', anonymous=True)
+        #rospy.init_node('error_prop', anonymous=True)
+        rospy.init_node('sensor_state', anonymous=True)
         main()
     except rospy.ROSInterruptException:
         pass
