@@ -28,6 +28,7 @@ dy = 0
 delt_thed = 0
 cov = np.mat('1 1 1; 1 1 1; 1 1 1', float)
 corners = None
+error = None
 
 class Line:
 
@@ -801,6 +802,7 @@ def convertObjectsToMsg(lines, corners, msg):
 
     for c in corners:
         msg.corners.append(c.msg)    
+    return msg.corners
 
    #print('Exiting convertObjecsToMsgs')
 
@@ -815,6 +817,7 @@ def laserCb(data):
 
     global corners
     global cov
+    global error
     
     # Convert the data to a list of cartesian points
     points = []
@@ -837,12 +840,16 @@ def laserCb(data):
 
     # Publish msg
     df = DepthFeatures()
-    convertObjectsToMsg(lines, corners, df)
-    
     pub_features.publish(df)
-    h = getH(msg.corners,pose,.05)
+    corners = convertObjectsToMsg(lines, corners, df)
     q = numpy.mat('.05 0.0 0.0; 0.0 .05 0.0; 0.0 0.0 .05',float)
-    error = h*cov*np.transpose(h)+q
+    pPoint = Point()
+    pPoint.x = pose.position.x
+    pPoint.y = pose.position.y
+    for c in corners:
+        h = getH(c,pose,getDistBetwPoints(c.p,pPoint))
+        error = h*cov*np.transpose(h)+q
+    print error
 
 # End callback
 
@@ -894,7 +901,7 @@ def callback(data):
     M[0,0] = .05*u[0]
     M[1,1] = .05*u[1]
     cov = (g*cov*np.transpose(g)) + (v*M*np.transpose(v))
-    print(cov)
+    #print(cov)
     
 def transitionModel(x, u):
     global x_prime
@@ -926,7 +933,7 @@ def main():
     pose.orientation.w = 0
 
     sub_lasers = rospy.Subscriber('/scan', LaserScan, laserCb)
-    rospy.Subscriber('/sensor_state', SensorState, callback)
+    #rospy.Subscriber('/sensor_state', SensorState, callback)
 
     rospy.spin()
 
