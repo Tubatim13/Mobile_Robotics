@@ -20,7 +20,7 @@ prev_left = 0
 WHEEL_CIRCUMFERENCE = 0.2073 
 TICKS_PER_REV = 4096.0
 Rw = 0.1435 
-lastData = None
+lastData = None #used in callback
 xpos = 0
 ypos = 0
 dx = 0
@@ -912,18 +912,25 @@ def transitionModel(x, u):
     global dx
     global dy
     global delt_thed
+    
     delt_thed = (u[1] - u[0])/(Rw*2)
+    
+    #displace the angle
     if delt_thed > math.pi:
       delt_thed = math.fmod(delt_thed, math.pi)
  
     elif(delt_thed < -math.pi):
       delt_thed = delt_thed + (2*math.pi)
+      
     d = (u[0]+u[1])/2.0
+    
     thed = (u[1] + u[0])/2.0*Rw
-    dx = d*math.cos(thed+delt_thed)
-    dy = d*math.sin(thed+delt_thed)
-    x_prime = State(dx+xpos,dy+ypos,thed,0,0,0)
-    return x_prime
+    
+    dx = d * math.cos(thed + delt_thed) #new x value
+    dy = d * math.sin(thed + delt_thed) #ew y value
+    
+    x_prime = State(dx+xpos,dy+ypos,thed,0,0,0) #update state's position
+    #return x_prime
 
 #allyson time
 def predict(data):
@@ -933,25 +940,33 @@ def predict(data):
     global cov
     global wheel_encoder
     
-    prev_pose = pose        
-    G = getG(prev_pose,u)   #Get the transition model matrix for the previous state and latest control
-    V = getV(prev_pose,u)   #Get the motion model matrix for the previous state and latest control
-    M = getM(u, 0.5)        #Get motion error matrix for motion model
+    prev_pose = pose 
+    #create transition model for data-----
+    transitionModel(data,u)
     
-    callback(data)
+    #calculating covariance-----       
+    G = getG(prev_pose,u)   #transition model matrix for the previous state and latest control
+    V = getV(prev_pose,u)   #motion model matrix for the previous state and latest control
+    M = getM(u, 0.5)        #motion error matrix for motion model
     cov = G * cov * np.transpose(G) + V * M * np.transpose(V)
-
-    #testing
-    print('POSE:', pose)
-    print('COV:', cov)
-
-#def measure():
     
- 
+    print("pose", pose)
+    print("cov", cov)
+
+def measure(data):
+    global corners
+    global cov
+    global pose
+    
+    #TODO:NOT DONE COMPLETE THIS
+    #corner_stuff = (rospy.Subscriber('/scan', LaserScan, laserCb)
+    return 0
+    
 def ekf_callback(data):
     print('in ekf callback')
     global wheel_encoder
     wheel_encoder = [data.left_encoder, data.right_encoder]
+
 
 
 def main():
@@ -968,15 +983,15 @@ def main():
     #sub_lasers = rospy.Subscriber('/scan', LaserScan, laserCb)
     #rospy.Subscriber('/sensor_state', SensorState, callback)
     print('running sensor state')
-    rospy.Subscriber('/sensor_state', SensorState, predict)
+    rospy.init_node('sensor_state', anonymous=True)
+    rospy.Subscriber('/sensor_state', SensorState, ekf_callback)
+    
     rospy.spin()
     print('Exiting normally')
 
 
 if __name__ == '__main__':
     try:
-        #rospy.init_node('error_prop', anonymous=True)
-        rospy.init_node('sensor_state', anonymous=True)
         main()
     except rospy.ROSInterruptException:
         pass
