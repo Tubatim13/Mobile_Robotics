@@ -10,6 +10,7 @@ from turtlebot3_msgs.msg import SensorState
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker
+from nav_msgs.msg import Odometry
 from laser_feature_extraction.msg import DepthFeatures
 from laser_feature_extraction.msg import LineMsg
 from laser_feature_extraction.msg import CornerMsg
@@ -21,17 +22,21 @@ WHEEL_CIRCUMFERENCE = 0.2073
 TICKS_PER_REV = 4096.0
 Rw = 0.1435 
 lastData = None #used in callback
-xpos = 0
-ypos = 0
 dx = 0
 dy = 0
 delt_thed = 0
 cov = np.mat('1 1 1; 1 1 1; 1 1 1', float)
-corners = None
+corners = []
 error = None
 #ekf stuff---
 u = [0,0]
 wheel_encoder=[0,0]
+iteration = 0
+oriX = 0.0
+oriY = 0.0
+oriZ = 0.0
+oriW = 0.0
+position = Point()
 
 class Line:
 
@@ -869,51 +874,64 @@ class State:
 x_prime = State(0,0,0,0,0,0)
 
 def callback(data):
+# set global vars for encoder data
+# move math to predict function
+# so that it cqn be cqlled on a timer
     global prev_right
     global prev_left
     global lastData
-    global cov
     global u
+    global iteration
+
+
     curr_right = data.right_encoder
     curr_left = data.left_encoder
+    #check for first iteration
+    if iteration == 0 :
+        prev_right = curr_right
+        prev_left = curr_left
+        iteration += 1
+    
     right_chng = 0
     left_chng = 0
-    if prev_right != 0 :
-        right_chng = curr_right - prev_right
-        right_chng = right_chng/4096
-    if prev_left != 0 :
-        left_chng = curr_left - prev_left
-        left_chng = left_chng/4096
+
+    right_chng = curr_right - prev_right
+    right_chng = right_chng/4096.0
+    left_chng = curr_left - prev_left
+    left_chng = left_chng/4096.0
     prev_right = data.right_encoder
     prev_left = data.left_encoder
     u = [left_chng * 0.2073,right_chng * 0.2073]
-    x_prime = transitionModel(data,u)
+
     if lastData != None:
         x_prime.vx = dx/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
         x_prime.vy = dy/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
         x_prime.vtheda = delt_thed/float(data.header.stamp.to_sec() - lastData.header.stamp.to_sec())
 
     lastData = data
-
-    pose.position.x = x_prime.x
-    pose.position.y = x_prime.y
-    pose.orientation = tf.transformations.quaternion_from_euler(0,0,x_prime.theta)
-    g = getG(pose,u)
-    v = getV(pose,u)
-    M = numpy.mat('0.0 0.0; 0.0 0.0',float)
-
-    M[0,0] = .05*u[0]
-    M[1,1] = .05*u[1]
-    cov = (g*cov*np.transpose(g)) + (v*M*np.transpose(v))
+   
+    predict()
     #print(cov)
-    
+
+def odomCB(data):
+    global oriX
+    global oriY
+    global oriZ
+    global position
+
+    oriX = data.pose.pose.orientation.x
+    oriY = data.pose.pose.orientation.y
+    oriZ = data.pose.pose.orientation.z
+    oriW = data.pose.pose.orientation.w
+    position = data.pose.pose.position
+
 def transitionModel(x, u):
     global x_prime
     global dx
     global dy
     global delt_thed
     
-    delt_thed = (u[1] - u[0])/(Rw*2)
+    delt_thed = (u[1] - u[0])/(Rw*2.0)
     
     #displace the angle
     if delt_thed > math.pi:
@@ -922,52 +940,104 @@ def transitionModel(x, u):
     elif(delt_thed < -math.pi):
       delt_thed = delt_thed + (2*math.pi)
       
-    d = (u[0]+u[1])/2.0
+    d = (u[0] + u[1])/2.0
+    #print(type(x.orientation))
+    #q = [x.orientation[0], x.orientation[1], x.orientation[2], x.orientation[3]]
+    q = [x.orientation.x, x.orientation.y, x.orientation.z, x.orientation.w]
+    t = tf.transformations.euler_from_quaternion(q)[2]
+    theta_new = t + delt_thed
+
     
-    thed = (u[1] + u[0])/2.0*Rw
+    dx = d * math.cos(theta_new) #new x value
+    dy = d * math.sin(theta_new) #ew y value
     
-    dx = d * math.cos(thed + delt_thed) #new x value
-    dy = d * math.sin(thed + delt_thed) #ew y value
-    
-    x_prime = State(dx+xpos,dy+ypos,thed,0,0,0) #update state's position
-    #return x_prime
+    x_prime = State(dx+x.position.x,dy+x.position.y,theta_new,0,0,0) #update state's position
+    return x_prime
+
+def measure():
+    global oriX
+    global oriY
+    global oriZ
+    global oriW
+    global pose
+    global corners
+    global position
+    global cov
+
+    predict()
+    #pose should now be from predict
+    Q = np.mat('.05 0.0 0.0; 0.0 .05 0.0; 0.0 0.0 .05', float) 
+    posePoint = Point(position.x,position.y,0.0)
+    predictPP = Point(pose.position.x,pose.position.y,0.0)
+    for corner in corners:
+        r = getDistBetwPoints(posePoint,corner.p)
+        q = [oriX, oriY, oriZ, oriW]
+        t = tf.transformations.euler_from_quaternion(q)[2]
+        phi = math.atan2(corner.p.y-posePoint.y,corner.p.x-posePoint.x)-t
+        
+        t2 = tf.transformations.euler_from_quaternion([pose.orientation.x,pose.orientation.y,pose.orientation.z,pose.orientation.w])[2]
+        j = math.atan2(predictPP.y-corner.p.y,predictPP.x-corner.p.x)-t2
+
+        q2 = ((corner.p.x-predictPP.x)**2) + ((corner.p.y-predictPP.y)**2)
+        q3 = ((corner.p.x-posePoint.x)**2) + ((corner.p.y-posePoint.y)**2)
+        zHat = np.asmatrix(np.array([math.sqrt(q2),j,corner.id]))
+        z = np.asmatrix(np.array([math.sqrt(q3),phi,corner.id]))
+        diff = z-zHat
+
+        hpose = Pose()
+        hpose.position = position
+        H = getH(corner,hpose,q3)
+        S = H*cov*np.transpose(H) + Q
+        K = cov*np.transpose(H)*np.linalg.inv(np.transpose(S))
+
+        I = np.mat('1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0', float)
+        poseMat = np.asmatrix(np.array([pose.position.x,pose.position.y,q3]))
+        poseMat = poseMat + (diff)*K
+        pose.position.x = poseMat.item(0)
+        pose.position.y = poseMat.item(1)
+        pose.position.z = poseMat.item(2)
+        cov = (I - K*H)*cov
 
 #allyson time
-def predict(data):
-    print('in predict')
+def predict():
+    #print('in predict')
     global pose
     global u
     global cov
-    global wheel_encoder
+    global x_prime
+    global left_chng
+    global right_chng
+
+    x_prime = transitionModel(pose,u)
+    #print("x_prime.position: (%s, %s)" % (x_prime.x, x_prime.y))
+
+    pose.position.x = x_prime.x
+    pose.position.y = x_prime.y
+    q = tf.transformations.quaternion_from_euler(0,0,displaceAngle(x_prime.theta,delt_thed))
+    pose.orientation.x = q[0]
+    pose.orientation.y = q[1]
+    pose.orientation.z = q[2]
+    pose.orientation.w = q[3]
     
     prev_pose = pose 
-    #create transition model for data-----
-    transitionModel(data,u)
     
     #calculating covariance-----       
     G = getG(prev_pose,u)   #transition model matrix for the previous state and latest control
     V = getV(prev_pose,u)   #motion model matrix for the previous state and latest control
-    M = getM(u, 0.5)        #motion error matrix for motion model
-    cov = G * cov * np.transpose(G) + V * M * np.transpose(V)
+    M = getM(u, 0.05)        #motion error matrix for motion model
+    cov = (G * cov * np.transpose(G)) + (V * M * np.transpose(V))
     
-    print("pose", pose)
-    print("cov", cov)
+    #print("pose", pose)
+    #print("cov", cov)
 
-def measure(data):
-    global corners
-    global cov
+def kalmanUpdate(event):
     global pose
-    
-    #TODO:NOT DONE COMPLETE THIS
-    #corner_stuff = (rospy.Subscriber('/scan', LaserScan, laserCb)
-    return 0
-    
-def ekf_callback(data):
-    print('in ekf callback')
-    global wheel_encoder
-    wheel_encoder = [data.left_encoder, data.right_encoder]
-
-
+    global cov
+    predict()
+    measure()
+    print(pose)
+    print(cov)
+    print('\n\n\n')
 
 def main():
     print('In main')
@@ -980,11 +1050,12 @@ def main():
     pose.orientation.z= 0
     pose.orientation.w = 0
 
-    #sub_lasers = rospy.Subscriber('/scan', LaserScan, laserCb)
-    #rospy.Subscriber('/sensor_state', SensorState, callback)
     print('running sensor state')
     rospy.init_node('sensor_state', anonymous=True)
-    rospy.Subscriber('/sensor_state', SensorState, ekf_callback)
+    rospy.Subscriber('/sensor_state', SensorState, callback)
+    rospy.Subscriber('/odom',Odometry,odomCB)
+    rospy.Subscriber('/scan',LaserScan, laserCb)
+    rospy.Timer(rospy.Duration(.1),kalmanUpdate,oneshot = False)
     
     rospy.spin()
     print('Exiting normally')
